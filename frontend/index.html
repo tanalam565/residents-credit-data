@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Credit Report Extractor</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 1400px; margin: 40px auto; padding: 20px;
+    background: #f5f6fa; color: #222;
+  }
+  h1 { margin: 0 0 8px; }
+  .subtitle { color: #666; margin-bottom: 24px; }
+
+  .dropzone {
+    display: block; width: 100%;
+    border: 2px dashed #b0b8c8; border-radius: 12px;
+    padding: 40px 20px; text-align: center;
+    background: #fff; cursor: pointer; transition: all 0.2s;
+  }
+  .dropzone.dragover { border-color: #4a7bff; background: #eef3ff; }
+  .dropzone p { margin: 6px 0; }
+  .dropzone .hint { color: #888; font-size: 14px; }
+  .dropzone input { display: none; }
+
+  .actions { margin-top: 16px; display: flex; gap: 12px; align-items: center; }
+  button {
+    background: #4a7bff; color: #fff; border: 0;
+    padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  }
+  button.secondary { background: #6c7280; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .uploads { margin-top: 16px; }
+  .upload-pill {
+    display: inline-block; margin: 4px 6px 0 0;
+    padding: 4px 10px; border-radius: 12px; font-size: 12px;
+  }
+  .upload-pill.loading { background: #fff3cd; color: #846200; }
+  .upload-pill.ok      { background: #d6f5dc; color: #1b7a31; }
+  .upload-pill.err     { background: #fadddd; color: #a02828; }
+
+  /* ---- Latest card ---- */
+  .latest {
+    margin-top: 24px; background: #fff; border-radius: 10px;
+    padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    border-left: 4px solid #4a7bff;
+  }
+  .latest h2 { margin: 0 0 16px; font-size: 18px; }
+  .latest .section { margin-bottom: 16px; }
+  .latest .section h3 {
+    margin: 0 0 8px; font-size: 13px; text-transform: uppercase;
+    color: #6c7280; letter-spacing: 0.5px;
+  }
+  .latest .grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px 20px;
+  }
+  .latest .field { font-size: 13px; }
+  .latest .field .label { color: #888; margin-right: 6px; }
+  .latest .field .value { color: #222; font-weight: 500; }
+  .latest .empty-value { color: #bbb; font-style: italic; }
+  .latest .list-item {
+    background: #f7f8fb; padding: 8px 12px; border-radius: 6px;
+    margin-bottom: 6px; font-size: 13px;
+  }
+
+  /* ---- Score badge ---- */
+  .score-badge {
+    display: inline-block; padding: 4px 12px; border-radius: 20px;
+    font-weight: 700; font-size: 15px; margin-left: 10px;
+  }
+  .score-high   { background: #d6f5dc; color: #1b7a31; }
+  .score-mid    { background: #fff3cd; color: #846200; }
+  .score-low    { background: #fadddd; color: #a02828; }
+  .score-none   { background: #e8e8e8; color: #666; }
+
+  /* ---- Decision badge ---- */
+  .decision-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 12px; font-weight: 600; margin-left: 8px;
+  }
+  .decision-approved   { background: #d6f5dc; color: #1b7a31; }
+  .decision-conditions { background: #fff3cd; color: #846200; }
+  .decision-declined   { background: #fadddd; color: #a02828; }
+
+  /* ---- Fraud flag ---- */
+  .fraud-flag {
+    background: #fadddd; color: #a02828; border-radius: 6px;
+    padding: 8px 12px; font-size: 13px; margin-bottom: 8px;
+    border-left: 3px solid #e04848;
+  }
+
+  /* ---- Table ---- */
+  .section-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin: 28px 0 12px;
+  }
+  .section-header h2 { margin: 0; font-size: 18px; }
+
+  .table-wrap {
+    background: #fff; border-radius: 10px;
+    overflow: auto; max-height: 70vh;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 13px; }
+  th, td {
+    padding: 8px 12px; border-bottom: 1px solid #eee;
+    white-space: nowrap; max-width: 280px;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  th {
+    background: #f0f3f8; position: sticky; top: 0;
+    text-align: left; font-weight: 600; color: #333;
+  }
+  td:hover { overflow: visible; white-space: normal; background: #fafbff; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  .empty { padding: 40px; text-align: center; color: #888; }
+  .count { color: #666; font-size: 14px; margin-left: auto; }
+
+  .delete-btn {
+    background: #e04848; color: #fff; border: 0;
+    padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;
+  }
+  .delete-btn:hover { background: #c43838; }
+  th.actions-col, td.actions-col {
+    position: sticky; left: 0; background: #fff; z-index: 1;
+    border-right: 1px solid #ddd;
+  }
+  th.actions-col { background: #f0f3f8; }
+</style>
+</head>
+<body>
+
+<h1>Credit Report Extractor</h1>
+<p class="subtitle">Drop credit reports (PDF or HTML) — data is extracted and appended to the Excel file.</p>
+
+<label class="dropzone" id="dropzone">
+  <input type="file" id="fileInput" multiple accept=".pdf,.htm,.html,.png,.jpg,.jpeg,.tiff,.tif,.bmp">
+  <p><strong>Drag &amp; drop credit reports here</strong></p>
+  <p class="hint">Supports TransUnion PDF and HTML Screening Reports (multiple files supported)</p>
+</label>
+
+<div class="actions">
+  <button id="downloadBtn">Download Excel</button>
+  <button id="refreshBtn" class="secondary">Refresh table</button>
+  <span class="count" id="count"></span>
+</div>
+
+<div class="uploads" id="uploads"></div>
+<div id="latestContainer"></div>
+
+<div class="section-header">
+  <h2>All Reports</h2>
+</div>
+
+<div class="table-wrap" id="tableWrap">
+  <div class="empty">No reports processed yet.</div>
+</div>
+
+<script>
+const dropzone        = document.getElementById("dropzone");
+const fileInput       = document.getElementById("fileInput");
+const uploads         = document.getElementById("uploads");
+const tableWrap       = document.getElementById("tableWrap");
+const countEl         = document.getElementById("count");
+const latestContainer = document.getElementById("latestContainer");
+
+["dragenter","dragover"].forEach(e =>
+  dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.add("dragover"); })
+);
+["dragleave","drop"].forEach(e =>
+  dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.remove("dragover"); })
+);
+dropzone.addEventListener("drop",    e => handleFiles(e.dataTransfer.files));
+fileInput.addEventListener("change", e => handleFiles(e.target.files));
+
+document.getElementById("downloadBtn").onclick = () => window.location.href = "/api/download";
+document.getElementById("refreshBtn").onclick  = loadTable;
+
+async function handleFiles(files) {
+  const pills = [];
+  for (const file of files) {
+    const pill = document.createElement("span");
+    pill.className = "upload-pill loading";
+    pill.textContent = `⏳ ${file.name}`;
+    uploads.prepend(pill);
+    pills.push({ pill, file });
+  }
+  for (const { pill, file } of pills) {
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res  = await fetch("/api/upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Upload failed");
+      pill.className = "upload-pill ok";
+      pill.textContent = `✓ ${file.name}`;
+      renderLatest(data.data);
+    } catch(err) {
+      pill.className = "upload-pill err";
+      pill.textContent = `✗ ${file.name}: ${err.message}`;
+    }
+  }
+  loadTable();
+}
+
+async function loadTable() {
+  try {
+    const res = await fetch("/api/data");
+    const { headers, rows } = await res.json();
+    renderTable(headers, rows);
+    countEl.textContent = `${rows.length} report${rows.length === 1 ? "" : "s"}`;
+  } catch(err) {
+    tableWrap.innerHTML = `<div class="empty">Failed to load: ${err.message}</div>`;
+  }
+}
+
+function renderTable(headers, rows) {
+  if (!rows.length) {
+    tableWrap.innerHTML = `<div class="empty">No reports processed yet.</div>`;
+    return;
+  }
+  const thead = `<thead><tr>
+    <th class="actions-col">Action</th>
+    ${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}
+  </tr></thead>`;
+  const tbody = `<tbody>${rows.map(r =>
+    `<tr>
+      <td class="actions-col">
+        <button class="delete-btn" data-row="${r.row_idx}">Delete</button>
+      </td>
+      ${r.cells.map(c =>
+        `<td title="${escapeHtml(String(c ?? ""))}">${escapeHtml(String(c ?? ""))}</td>`
+      ).join("")}
+    </tr>`
+  ).join("")}</tbody>`;
+  tableWrap.innerHTML = `<table>${thead}${tbody}</table>`;
+  tableWrap.querySelectorAll(".delete-btn").forEach(btn =>
+    btn.addEventListener("click", () => deleteRow(parseInt(btn.dataset.row, 10)))
+  );
+}
+
+async function deleteRow(rowIdx) {
+  if (!confirm("Delete this report from the Excel file?")) return;
+  try {
+    const res = await fetch(`/api/data/${rowIdx}`, { method: "DELETE" });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || "Delete failed"); }
+    loadTable();
+  } catch(err) { alert(`Delete failed: ${err.message}`); }
+}
+
+// ---- Score badge ----
+function scoreBadge(score) {
+  if (score === null || score === undefined || score === "") {
+    return `<span class="score-badge score-none">No Score</span>`;
+  }
+  const n = parseInt(score);
+  const cls = n >= 650 ? "score-high" : n >= 550 ? "score-mid" : "score-low";
+  return `<span class="score-badge ${cls}">${n}</span>`;
+}
+
+// ---- Decision badge ----
+function decisionBadge(decision) {
+  if (!decision) return "";
+  const d = decision.toLowerCase();
+  const cls = d.includes("declined") ? "decision-declined"
+            : d.includes("condition") ? "decision-conditions"
+            : "decision-approved";
+  return `<span class="decision-badge ${cls}">${escapeHtml(decision)}</span>`;
+}
+
+function v(val) {
+  if (val === null || val === undefined || val === "")
+    return `<span class="empty-value">—</span>`;
+  return escapeHtml(String(val));
+}
+function field(label, val) {
+  return `<div class="field"><span class="label">${label}:</span><span class="value">${v(val)}</span></div>`;
+}
+
+function renderLatest(d) {
+  let scoreFactors = [], tradelines = [], collections = [], inquiries = [],
+      tradeSummary = {}, criteria = [];
+  try { scoreFactors  = JSON.parse(d.score_factors   || "[]"); } catch {}
+  try { tradelines    = JSON.parse(d.tradelines       || "[]"); } catch {}
+  try { collections   = JSON.parse(d.collections      || "[]"); } catch {}
+  try { inquiries     = JSON.parse(d.inquiries         || "[]"); } catch {}
+  try { tradeSummary  = JSON.parse(d.tradeline_summary || "{}"); } catch {}
+  try { criteria      = JSON.parse(d.criteria_results  || "[]"); } catch {}
+
+  const fraudHtml = d.fraud_indicators
+    ? `<div class="fraud-flag">⚠ ${escapeHtml(d.fraud_indicators)}</div>` : "";
+
+  const akaFlag = (parseInt(d.aka_count) > 2)
+    ? `<span style="color:#a02828;font-size:12px;margin-left:6px;">⚠ ${d.aka_count} aliases</span>` : "";
+
+  const rapidFlag = d.rapid_tradeline_flag === true || d.rapid_tradeline_flag === "true"
+    ? `<span style="color:#a02828;font-size:12px;margin-left:6px;">⚠ Rapid tradeline opening</span>` : "";
+
+  // Tradeline summary table
+  const summaryTypes = ["revolving","installment","mortgage","open","closed_w_bal","total"];
+  const summaryRows = summaryTypes.map(t => {
+    const s = tradeSummary[t] || {};
+    return `<tr>
+      <td style="font-weight:${t==="total"?"600":"400"};text-transform:capitalize">${t.replace("_"," ")}</td>
+      <td>${v(s.count)}</td><td>${v(s.high_credit)}</td><td>${v(s.credit_limit)}</td>
+      <td>${v(s.balance)}</td><td>${v(s.past_due)}</td><td>${v(s.payment)}</td><td>${v(s.available)}</td>
+    </tr>`;
+  }).join("");
+
+  const summaryTable = `
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;">
+      <thead><tr style="background:#f0f3f8;">
+        <th style="padding:5px 8px;text-align:left;">Type</th>
+        <th style="padding:5px 8px;">Count</th><th style="padding:5px 8px;">High Credit</th>
+        <th style="padding:5px 8px;">Credit Limit</th><th style="padding:5px 8px;">Balance</th>
+        <th style="padding:5px 8px;">Past Due</th><th style="padding:5px 8px;">Payment</th>
+        <th style="padding:5px 8px;">Available</th>
+      </tr></thead>
+      <tbody>${summaryRows}</tbody>
+    </table>`;
+
+  latestContainer.innerHTML = `
+    <div class="latest">
+      <h2>
+        Latest: ${escapeHtml(d.full_name || "(no name)")}
+        ${scoreBadge(d.credit_score)}
+        ${decisionBadge(d.decision)}
+        <span style="color:#888;font-size:13px;font-weight:normal;margin-left:8px;">— ${escapeHtml(d.source_filename || "")}</span>
+      </h2>
+
+      ${fraudHtml}
+
+      <div class="section">
+        <h3>Identity</h3>
+        <div class="grid">
+          ${field("Name", d.full_name)}
+          ${field("DOB", d.dob)}
+          ${field("SSN", d.ssn)}
+          <div class="field"><span class="label">AKA:</span><span class="value">${v(d.aka)}${akaFlag}</span></div>
+          ${field("Current Address", d.current_address)}
+          ${field("Previous Address", d.previous_address)}
+          ${field("Phone", d.phone)}
+          ${field("Employment", d.employment)}
+          ${field("SSN Message", d.ssn_message)}
+          ${field("Address Conflict", d.address_conflict)}
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Credit Score</h3>
+        <div class="grid">
+          ${field("Score", d.credit_score ?? "Not scored")}
+          ${field("Model", d.credit_score_model)}
+          ${field("Source", d.credit_score_source)}
+        </div>
+        ${scoreFactors.length ? `<div style="margin-top:8px;font-size:13px;color:#555;">
+          Key factors: ${scoreFactors.map(f => escapeHtml(f)).join(" &bull; ")}
+        </div>` : ""}
+      </div>
+
+      <div class="section">
+        <h3>Record Counts</h3>
+        <div class="grid">
+          <div class="field"><span class="label">Tradelines:</span><span class="value">${v(d.tradelines_count)}${rapidFlag}</span></div>
+          ${field("Collections", d.collections_count)}
+          ${field("Public Records", d.public_records_count)}
+          ${field("Inquiries", d.inquiries_count)}
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Derogatory Items</h3>
+        <div class="grid">
+          ${field("Negative Tradelines", d.negative_tradelines)}
+          ${field("Tradelines w/ Historical Negatives", d.tradelines_with_historical_negatives)}
+          ${field("Occurrence of Historical Negatives", d.occurrence_of_historical_negatives)}
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Late Payment Totals</h3>
+        <div class="grid">
+          ${field("30-day lates", d.total_late_30)}
+          ${field("60-day lates", d.total_late_60)}
+          ${field("90-day lates", d.total_late_90)}
+          ${field("120+ day lates", d.total_late_120_plus)}
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Tradeline Summary</h3>
+        ${summaryTable}
+      </div>
+
+      <div class="section">
+        <h3>Tradelines (${tradelines.length})</h3>
+        ${tradelines.length === 0
+          ? `<div class="empty-value">None</div>`
+          : tradelines.map(t => `
+            <div class="list-item">
+              <strong>${v(t.creditor_name)}</strong>
+              <span style="color:#666;margin-left:8px;">${v(t.loan_type)} — ${v(t.status)}</span>
+              <div style="color:#666;font-size:12px;margin-top:3px;">
+                Opened: ${v(t.opened)} | Balance: ${v(t.balance)} | Past Due: ${v(t.past_due)} | Limit: ${v(t.credit_limit)}
+              </div>
+              ${(t.late_30 || t.late_60 || t.late_90 || t.late_120_plus)
+                ? `<div style="color:#a02828;font-size:12px;margin-top:2px;">
+                    Late: 30d=${v(t.late_30)} 60d=${v(t.late_60)} 90d=${v(t.late_90)} 120+=${v(t.late_120_plus)}
+                  </div>` : ""}
+              ${t.remarks ? `<div style="color:#846200;font-size:12px;">Remarks: ${escapeHtml(t.remarks)}</div>` : ""}
+            </div>`).join("")}
+      </div>
+
+      <div class="section">
+        <h3>Collections (${collections.length})</h3>
+        ${collections.length === 0
+          ? `<div class="empty-value">None</div>`
+          : collections.map(c => `
+            <div class="list-item" style="border-left:3px solid #e04848;">
+              <strong>${v(c.collector_name)}</strong>
+              <span style="color:#a02828;margin-left:8px;">$${v(c.current_balance)} past due</span>
+              <div style="color:#666;font-size:12px;margin-top:2px;">
+                Original creditor: ${v(c.credit_grantor)} | Opened: ${v(c.opened)}
+              </div>
+              ${c.remarks ? `<div style="color:#555;font-size:12px;">Remarks: ${escapeHtml(c.remarks)}</div>` : ""}
+            </div>`).join("")}
+      </div>
+
+      <div class="section">
+        <h3>Inquiries (${inquiries.length})</h3>
+        ${inquiries.length === 0
+          ? `<div class="empty-value">None</div>`
+          : `<div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${inquiries.map(i =>
+              `<span style="background:#f0f3f8;padding:3px 8px;border-radius:4px;font-size:12px;">
+                ${v(i.date)} — ${v(i.name)}
+              </span>`
+            ).join("")}
+          </div>`}
+      </div>
+
+      ${d.decision ? `
+      <div class="section">
+        <h3>Screening Decision</h3>
+        <div class="grid">
+          ${field("Decision", d.decision)}
+          ${field("Application ID", d.application_id)}
+          ${field("Criminal Records", d.criminal_records_any)}
+          ${field("Eviction Records", d.eviction_records_any)}
+          ${field("Sanctions Check", d.sanctions_check)}
+        </div>
+        ${d.decision_notes ? `<div style="margin-top:8px;font-size:13px;color:#555;background:#fffbe6;padding:8px;border-radius:6px;">Notes: ${escapeHtml(d.decision_notes)}</div>` : ""}
+      </div>` : ""}
+
+      <div class="section">
+        <h3>Meta</h3>
+        <div class="grid">
+          ${field("Report Type", d.report_type)}
+          ${field("Report Date", d.report_date)}
+          ${field("Property", d.property)}
+          ${field("Requested By", d.requested_by)}
+          ${field("Uploaded At", d.uploaded_at)}
+          ${field("Source File", d.source_filename)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[c]));
+}
+
+loadTable();
+</script>
+</body>
+</html>
