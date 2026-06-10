@@ -23,7 +23,7 @@ app.add_middleware(
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
-EXCEL_PATH = os.getenv("EXCEL_PATH", str(PROJECT_ROOT / "credit_reports.xlsx"))
+EXCEL_PATH = os.getenv("EXCEL_PATH", str(BASE_DIR / "reports.xlsx"))
 
 SUPPORTED_EXTS = {".pdf", ".htm", ".html", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp"}
 
