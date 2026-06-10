@@ -3,6 +3,7 @@ import re
 import json
 import uuid
 import time
+import asyncio
 import random
 import hashlib
 import threading
@@ -12,7 +13,9 @@ from typing import Dict, Any, List
 from bs4 import BeautifulSoup
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.ai.documentintelligence.aio import DocumentIntelligenceClient as AsyncDocumentIntelligenceClient
 from openai import AzureOpenAI
+from openai import AsyncAzureOpenAI
 from openpyxl import Workbook, load_workbook
 
 from dotenv import load_dotenv
@@ -311,6 +314,27 @@ def extract_text_with_ocr(file_content: bytes) -> str:
     return result.content
 
 
+async def extract_text_with_ocr_async(file_content: bytes) -> str:
+    endpoint = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
+    key = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_KEY")
+    if not endpoint or not key:
+        raise ValueError("Azure Document Intelligence credentials not configured")
+    async with AsyncDocumentIntelligenceClient(
+        endpoint=endpoint,
+        credential=AzureKeyCredential(key),
+        api_version="2024-11-30",
+    ) as client:
+        poller = await client.begin_analyze_document(
+            model_id="prebuilt-read",
+            body=file_content,
+            content_type="application/octet-stream",
+        )
+        result = await poller.result()
+    if not result or not hasattr(result, "content"):
+        raise ValueError("No text extracted from document")
+    return result.content
+
+
 def extract_text_from_html(file_content: bytes) -> str:
     soup = BeautifulSoup(file_content.decode("utf-8", errors="ignore"), "html.parser")
     return soup.get_text(separator="\n", strip=True)
@@ -412,6 +436,122 @@ Credit report text:
                 {} if isinstance(default, dict) else default
             )
     return result
+
+
+async def extract_with_gpt_async(text: str) -> Dict[str, Any]:
+    endpoint   = os.getenv("AZURE_OPENAI_ENDPOINT")
+    key        = os.getenv("AZURE_OPENAI_API_KEY")
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+    api_version= os.getenv("AZURE_OPENAI_API_VERSION", "2025-04-01-preview")
+    if not endpoint or not key:
+        raise ValueError("Azure OpenAI credentials not configured")
+
+    client = AsyncAzureOpenAI(azure_endpoint=endpoint, api_key=key, api_version=api_version)
+
+    extraction_id = str(uuid.uuid4())
+    random_seed   = random.randint(100000, 999999)
+    doc_hash      = hashlib.sha256(text.encode()).hexdigest()[:16]
+    await asyncio.sleep(0.5)
+
+    schema_json   = json.dumps(CREDIT_REPORT_SCHEMA, indent=2)
+    tradeline_json= json.dumps(TRADELINE_ITEM)
+    collection_json=json.dumps(COLLECTION_ITEM)
+    inquiry_json  = json.dumps(INQUIRY_ITEM)
+
+    prompt = f"""Extract credit report data and return JSON matching EXACTLY this schema (null for missing values, [] for missing lists):
+
+{schema_json}
+
+Each item in `tradelines` must follow: {tradeline_json}
+Each item in `collections` must follow: {collection_json}
+Each item in `inquiries` must follow: {inquiry_json}
+
+Rules:
+- `report_type`: "TransUnion PDF" or "HTML Screening Report".
+- `aka_count`: count distinct AKA aliases (>2 may indicate identity fraud).
+- `rapid_tradeline_flag`: true if 3+ tradelines opened within any 6-month window.
+- `address_conflict`: true if report contains an address mismatch warning.
+- `fraud_indicator_count`: count of distinct fraud/alert descriptions found. 0 if none.
+- `fraud_indicators`: concatenate ALL fraud/alert descriptions separated by " | ". null if none.
+- `credit_score`: integer or null if not scored / insufficient credit.
+- `score_factors`: list of key factor strings.
+- `tradeline_summary`: keys revolving, installment, mortgage, open, closed_w_bal, total. Each: {{ count, high_credit, credit_limit, balance, past_due, payment, available }} — null for N/A.
+- `total_late_30/60/90/120_plus`: sum across ALL tradelines.
+- `negative_tradelines`, `tradelines_with_historical_negatives`, `occurrence_of_historical_negatives`: integers.
+- `decision` (HTML only): "Approved", "Approved with Conditions", or "Declined".
+- `criteria_results` (HTML only): array of {{ code, description, result }} where result is "P","F","*","N","--".
+- `criminal_records_any`: true if ANY CM-prefixed criteria result = "F".
+- `eviction_records_any`: true if ANY EV-prefixed criteria result = "F".
+- `sanctions_check`: "Pass" if GS306="P", "Fail" if "F", null if absent.
+- `monthly_rent`: numeric monthly rent from the report header (e.g. "Monthly Rent: $920" → 920). null if not present.
+- `monthly_income`: numeric monthly income from the Rent to Income Summary table (e.g. "$ 4,500" → 4500). null if not present.
+- `rent_to_income_pct`: numeric percentage from Rent to Income Summary (e.g. "20.44 %" → 20.44). null if not present.
+- `min_income_required`: numeric minimum income required from Rent to Income Summary (e.g. "$ 2,629" → 2629). null if not present.
+- monetary values as numbers (strip $ and commas), null if N/A.
+- dates as MM/YY or MM/DD/YYYY as they appear.
+- Return ONLY valid JSON. No markdown, no commentary.
+
+Credit report text:
+{text}
+"""
+
+    response = await client.chat.completions.create(
+        model=deployment,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    f"SESSION: {extraction_id} HASH: {doc_hash} "
+                    "You are a precise credit report data extractor for a property management company. "
+                    "Return only valid JSON."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.1,
+        max_completion_tokens=8000,
+        seed=random_seed,
+        user=f"extraction_{extraction_id}",
+        response_format={"type": "json_object"},
+    )
+
+    result_text = response.choices[0].message.content or ""
+    result_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", result_text.strip())
+
+    try:
+        result = json.loads(result_text)
+    except json.JSONDecodeError:
+        cleaned = re.sub(r",\s*([}\]])", r"\1", result_text)
+        result = json.loads(cleaned)
+
+    for k, default in CREDIT_REPORT_SCHEMA.items():
+        if k not in result or (result[k] is None and isinstance(default, list)):
+            result[k] = [] if isinstance(default, list) else (
+                {} if isinstance(default, dict) else default
+            )
+    return result
+
+
+async def extract_credit_report_data_async(
+    file_content: bytes,
+    filename: str,
+) -> tuple:
+    """Async extraction — returns (extracted, flat_row). Excel write handled by caller."""
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext in (".htm", ".html"):
+        text = extract_text_from_html(file_content)
+    elif ext in (".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp"):
+        text = await extract_text_with_ocr_async(file_content)
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")
+
+    if not text or len(text.strip()) < 50:
+        raise ValueError("Insufficient text extracted from document")
+
+    extracted = await extract_with_gpt_async(text)
+    flat_row  = build_flat_row(extracted, filename)
+    return extracted, flat_row
 
 
 # ---------------------------------------------------------------------------

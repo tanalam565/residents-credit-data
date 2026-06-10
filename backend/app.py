@@ -1,12 +1,12 @@
 import os
-import threading
+import asyncio
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from credit_report import extract_credit_report_data
+from credit_report import extract_credit_report_data, extract_credit_report_data_async, append_to_excel
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -27,7 +27,9 @@ EXCEL_PATH = os.getenv("EXCEL_PATH", str(BASE_DIR / "reports.xlsx"))
 
 SUPPORTED_EXTS = {".pdf", ".htm", ".html", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp"}
 
-excel_lock = threading.Lock()
+# Serialize Excel writes; limit concurrent Azure API calls to avoid rate limits
+excel_lock = asyncio.Lock()
+azure_semaphore = asyncio.Semaphore(5)
 
 
 @app.post("/api/upload")
@@ -38,9 +40,16 @@ async def upload_report(file: UploadFile = File(...)):
 
     content = await file.read()
     try:
-        with excel_lock:
-            row = extract_credit_report_data(content, file.filename, EXCEL_PATH)
-        return {"success": True, "data": row}
+        # Azure OCR + GPT: up to 3 files processed concurrently
+        async with azure_semaphore:
+            extracted, flat_row = await extract_credit_report_data_async(content, file.filename)
+
+        # Excel write: strictly serialized to prevent file corruption
+        async with excel_lock:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, append_to_excel, extracted, flat_row, EXCEL_PATH)
+
+        return {"success": True, "data": flat_row}
     except Exception as e:
         raise HTTPException(500, str(e))
 
