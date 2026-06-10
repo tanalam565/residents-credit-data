@@ -180,15 +180,17 @@ document.getElementById("downloadBtn").onclick = () => window.location.href = "/
 document.getElementById("refreshBtn").onclick  = loadTable;
 
 async function handleFiles(files) {
-  const pills = [];
+  const items = [];
   for (const file of files) {
     const pill = document.createElement("span");
     pill.className = "upload-pill loading";
     pill.textContent = `⏳ ${file.name}`;
     uploads.prepend(pill);
-    pills.push({ pill, file });
+    items.push({ pill, file });
   }
-  for (const { pill, file } of pills) {
+
+  // Fire all uploads concurrently — backend semaphore limits Azure calls to 3 at a time
+  await Promise.allSettled(items.map(async ({ pill, file }) => {
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -202,7 +204,8 @@ async function handleFiles(files) {
       pill.className = "upload-pill err";
       pill.textContent = `✗ ${file.name}: ${err.message}`;
     }
-  }
+  }));
+
   loadTable();
 }
 
