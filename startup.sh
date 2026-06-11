@@ -7,6 +7,9 @@ export EXCEL_PATH="${EXCEL_PATH:-/home/data/reports.xlsx}"
 
 cd /home/site/wwwroot
 
+# Activate the virtual environment built during deployment
+source antenv/bin/activate
+
 gunicorn \
   --workers 4 \
   --worker-class uvicorn.workers.UvicornWorker \

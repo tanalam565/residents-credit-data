@@ -23,8 +23,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install dependencies into virtualenv
+        run: |
+          python -m venv antenv
+          source antenv/bin/activate
+          pip install -r requirements.txt
+
+      - name: Zip artifact for deployment
+        run: zip -r release.zip . -x "*.git*" -x "__pycache__/*" -x "*.pyc"
 
       - name: Log in to Azure
         uses: azure/login@v2
@@ -35,4 +41,5 @@ jobs:
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: release.zip
           startup-command: 'bash startup.sh'
