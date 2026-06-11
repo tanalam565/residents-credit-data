@@ -2,7 +2,8 @@ azure-ai-documentintelligence
 openai
 openpyxl
 fastapi
-uvicorn
+uvicorn[standard]
+gunicorn
 python-multipart
 python-dotenv
 beautifulsoup4
