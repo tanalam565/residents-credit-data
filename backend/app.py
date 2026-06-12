@@ -60,6 +60,14 @@ def get_data():
     return {"headers": headers, "rows": rows}
 
 
+@app.delete("/api/data")
+def delete_all_rows():
+    from db import get_conn
+    with get_conn() as conn:
+        conn.execute("DELETE FROM reports")
+    return {"success": True}
+
+
 @app.delete("/api/data/{row_idx}")
 def delete_row(row_idx: int):
     deleted = delete_report(row_idx)

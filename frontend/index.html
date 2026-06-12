@@ -30,6 +30,8 @@
     padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 14px;
   }
   button.secondary { background: #6c7280; }
+  button.danger { background: #d9534f; }
+  button.danger:hover { background: #c43838; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .uploads { margin-top: 16px; }
@@ -145,6 +147,7 @@
 <div class="actions">
   <button id="downloadBtn">Download Excel</button>
   <button id="refreshBtn" class="secondary">Refresh table</button>
+  <button id="deleteAllBtn" class="danger">Delete All</button>
   <span class="count" id="count"></span>
 </div>
 
@@ -176,8 +179,19 @@ const latestContainer = document.getElementById("latestContainer");
 dropzone.addEventListener("drop",    e => handleFiles(e.dataTransfer.files));
 fileInput.addEventListener("change", e => handleFiles(e.target.files));
 
-document.getElementById("downloadBtn").onclick = () => window.location.href = "/api/download";
-document.getElementById("refreshBtn").onclick  = loadTable;
+document.getElementById("downloadBtn").onclick  = () => window.location.href = "/api/download";
+document.getElementById("refreshBtn").onclick   = loadTable;
+document.getElementById("deleteAllBtn").onclick = deleteAll;
+
+async function deleteAll() {
+  if (!confirm("Delete ALL reports? This cannot be undone.")) return;
+  if (!confirm("Are you sure? All data will be permanently deleted.")) return;
+  try {
+    const res = await fetch("/api/data", { method: "DELETE" });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || "Failed"); }
+    loadTable();
+  } catch(err) { alert(`Delete all failed: ${err.message}`); }
+}
 
 async function handleFiles(files) {
   const items = [];
