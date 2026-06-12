@@ -136,7 +136,7 @@
 <body>
 
 <h1>Credit Report Extractor</h1>
-<p class="subtitle">Drop credit reports (PDF or HTML) — data is extracted and appended to the Excel file.</p>
+<p class="subtitle">Drop credit reports (PDF or HTML) — data is extracted and saved to the database.</p>
 
 <label class="dropzone" id="dropzone">
   <input type="file" id="fileInput" multiple accept=".pdf,.htm,.html,.png,.jpg,.jpeg,.tiff,.tif,.bmp">
@@ -209,8 +209,10 @@ async function handleFiles(files) {
       const fd = new FormData();
       fd.append("file", file);
       const res  = await fetch("/api/upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Upload failed");
+      const text = await res.text();
+      let data = {};
+      try { data = JSON.parse(text); } catch(_) {}
+      if (!res.ok) throw new Error(data.detail || `Server error ${res.status}`);
       pill.className = "upload-pill ok";
       pill.textContent = `✓ ${file.name}`;
       renderLatest(data.data);

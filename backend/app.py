@@ -31,8 +31,10 @@ SUPPORTED_EXTS = {".pdf", ".htm", ".html", ".png", ".jpg", ".jpeg", ".tiff", ".t
 
 azure_semaphore = asyncio.Semaphore(5)
 
-# Initialise DB on startup
-init_db()
+
+@app.on_event("startup")
+async def startup_event():
+    init_db()
 
 
 @app.post("/api/upload")
